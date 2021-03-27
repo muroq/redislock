@@ -29,37 +29,37 @@ var _ = Describe("Client", func() {
 	})
 
 	It("should obtain once with TTL", func() {
-		lock1, err := subject.Obtain(ctx, lockKey, time.Hour, nil)
+		lock1, err := subject.Obtain(ctx, lockKey, time.Hour, time.Hour, nil)
 		Expect(err).NotTo(HaveOccurred())
 		Expect(lock1.Token()).To(HaveLen(22))
 		Expect(lock1.TTL(ctx)).To(BeNumerically("~", time.Hour, time.Second))
 		defer lock1.Release(ctx)
 
-		_, err = subject.Obtain(ctx, lockKey, time.Hour, nil)
+		_, err = subject.Obtain(ctx, lockKey, time.Hour, time.Hour, nil)
 		Expect(err).To(Equal(redislock.ErrNotObtained))
 		Expect(lock1.Release(ctx)).To(Succeed())
 
-		lock2, err := subject.Obtain(ctx, lockKey, time.Minute, nil)
+		lock2, err := subject.Obtain(ctx, lockKey, time.Minute, time.Minute, nil)
 		Expect(err).NotTo(HaveOccurred())
 		Expect(lock2.TTL(ctx)).To(BeNumerically("~", time.Minute, time.Second))
 		Expect(lock2.Release(ctx)).To(Succeed())
 	})
 
 	It("should obtain through short-cut", func() {
-		lock, err := redislock.Obtain(ctx, redisClient, lockKey, time.Hour, nil)
+		lock, err := redislock.Obtain(ctx, redisClient, lockKey, time.Hour, time.Hour, nil)
 		Expect(err).NotTo(HaveOccurred())
 		Expect(lock.Release(ctx)).To(Succeed())
 	})
 
 	It("should support custom metadata", func() {
-		lock, err := redislock.Obtain(ctx, redisClient, lockKey, time.Hour, &redislock.Options{Metadata: "my-data"})
+		lock, err := redislock.Obtain(ctx, redisClient, lockKey, time.Hour, time.Hour, &redislock.Options{Metadata: "my-data"})
 		Expect(err).NotTo(HaveOccurred())
 		Expect(lock.Metadata()).To(Equal("my-data"))
 		Expect(lock.Release(ctx)).To(Succeed())
 	})
 
 	It("should refresh", func() {
-		lock, err := redislock.Obtain(ctx, redisClient, lockKey, time.Minute, nil)
+		lock, err := redislock.Obtain(ctx, redisClient, lockKey, time.Minute, time.Minute, nil)
 		Expect(err).NotTo(HaveOccurred())
 		Expect(lock.TTL(ctx)).To(BeNumerically("~", time.Minute, time.Second))
 		Expect(lock.Refresh(ctx, time.Hour, nil)).To(Succeed())
@@ -68,14 +68,14 @@ var _ = Describe("Client", func() {
 	})
 
 	It("should fail to release if expired", func() {
-		lock, err := redislock.Obtain(ctx, redisClient, lockKey, time.Millisecond, nil)
+		lock, err := redislock.Obtain(ctx, redisClient, lockKey, time.Millisecond, time.Millisecond, nil)
 		Expect(err).NotTo(HaveOccurred())
 		time.Sleep(5 * time.Millisecond)
 		Expect(lock.Release(ctx)).To(MatchError(redislock.ErrLockNotHeld))
 	})
 
 	It("should fail to release if ontained by someone else", func() {
-		lock, err := redislock.Obtain(ctx, redisClient, lockKey, time.Minute, nil)
+		lock, err := redislock.Obtain(ctx, redisClient, lockKey, time.Minute, time.Minute, nil)
 		Expect(err).NotTo(HaveOccurred())
 
 		Expect(redisClient.Set(ctx, lockKey, "ABCD", 0).Err()).NotTo(HaveOccurred())
@@ -83,7 +83,7 @@ var _ = Describe("Client", func() {
 	})
 
 	It("should fail to refresh if expired", func() {
-		lock, err := redislock.Obtain(ctx, redisClient, lockKey, time.Millisecond, nil)
+		lock, err := redislock.Obtain(ctx, redisClient, lockKey, time.Millisecond, time.Millisecond, nil)
 		Expect(err).NotTo(HaveOccurred())
 		time.Sleep(5 * time.Millisecond)
 		Expect(lock.Refresh(ctx, time.Hour, nil)).To(MatchError(redislock.ErrNotObtained))
@@ -94,7 +94,7 @@ var _ = Describe("Client", func() {
 		Expect(redisClient.Set(ctx, lockKey, "ABCD", 0).Err()).NotTo(HaveOccurred())
 		Expect(redisClient.PExpire(ctx, lockKey, 20*time.Millisecond).Err()).NotTo(HaveOccurred())
 
-		lock, err := redislock.Obtain(ctx, redisClient, lockKey, time.Hour, &redislock.Options{
+		lock, err := redislock.Obtain(ctx, redisClient, lockKey, time.Hour, time.Hour, &redislock.Options{
 			RetryStrategy: redislock.LimitRetry(redislock.LinearBackoff(100*time.Millisecond), 3),
 		})
 		Expect(err).NotTo(HaveOccurred())
@@ -104,14 +104,14 @@ var _ = Describe("Client", func() {
 		Expect(redisClient.Set(ctx, lockKey, "ABCD", 0).Err()).NotTo(HaveOccurred())
 		Expect(redisClient.PExpire(ctx, lockKey, 50*time.Millisecond).Err()).NotTo(HaveOccurred())
 
-		_, err = redislock.Obtain(ctx, redisClient, lockKey, time.Hour, nil)
+		_, err = redislock.Obtain(ctx, redisClient, lockKey, time.Hour, time.Hour, nil)
 		Expect(err).To(MatchError(redislock.ErrNotObtained))
 
 		// retry 2x, give up & fail
 		Expect(redisClient.Set(ctx, lockKey, "ABCD", 0).Err()).NotTo(HaveOccurred())
 		Expect(redisClient.PExpire(ctx, lockKey, 50*time.Millisecond).Err()).NotTo(HaveOccurred())
 
-		_, err = redislock.Obtain(ctx, redisClient, lockKey, time.Hour, &redislock.Options{
+		_, err = redislock.Obtain(ctx, redisClient, lockKey, time.Hour, time.Hour, &redislock.Options{
 			RetryStrategy: redislock.LimitRetry(redislock.LinearBackoff(time.Millisecond), 2),
 		})
 		Expect(err).To(MatchError(redislock.ErrNotObtained))
@@ -130,7 +130,7 @@ var _ = Describe("Client", func() {
 				wait := rand.Int63n(int64(50 * time.Millisecond))
 				time.Sleep(time.Duration(wait))
 
-				_, err := subject.Obtain(ctx, lockKey, time.Minute, nil)
+				_, err := subject.Obtain(ctx, lockKey, time.Minute, time.Minute, nil)
 				if err == redislock.ErrNotObtained {
 					return
 				}
