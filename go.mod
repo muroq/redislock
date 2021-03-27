@@ -1,4 +1,4 @@
-module github.com/bsm/redislock
+module github.com/muroq/redislock
 
 go 1.13
 
